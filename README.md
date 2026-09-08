@@ -1,8 +1,9 @@
-A bug related to the PI feedback has been fixed. 
-4 parameters for setting of the PI feedback:
-PI.KP, proportional gain
-PI.KI, integral gain
-PI.m, Number of buckets among which to average the cavity voltage, used for PI feedback.
-PI.d, time delay, equivalent to be given in the number of buckets.
+# Update: BbB Feedback & Detune Frequency Solver
 
+**Author:** Peizhi Fang
+
+This update introduces two key features for multi-bunch beam dynamics simulations:
+
+* **Bunch-by-Bunch (BbB) Feedback Module:** Simulates turn-by-turn bunch signal pickup, FIR filtering, and corrective kick application to damp coupled-bunch instabilities.
+* **Detuning Frequency Iteration Solver:** A robust, self-consistent iterative routine to compute optimal RF cavity detuning under heavy beam loading conditions.
 
