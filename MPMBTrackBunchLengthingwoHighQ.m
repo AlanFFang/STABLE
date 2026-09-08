@@ -2,83 +2,44 @@
 % 研究谐波腔致束团拉伸
 % GPU-accelerated
 % author： Tianlong He
-% time： 20200706
-% time:  20200910 (modified: w/o high Q approximation)
-% time : 20210213 (modified: include the BL of main cavity)
-% time : 20211121 (modified: include HOMs)
-% time : 20220212 (modified: include realistic PI feedback,test)
-% time : 20230212 (modified: include realistic PI feedback)
-% time : 20230326 (fix the bug in the PI feedback)
+% modified: Peizhi Fang; Add BbB feedback module & detune frequency calculate iteration
+
 clc;clear;
 
-fre_shift_scan=[60:10:100,150:50:250]*1e3; % scan detuning
-
-for Ii = 1:length(fre_shift_scan)
 %% beam parameters
-% HALF 参数
+% MAX-IV Params
 cspeed = 299792458; 
-sigma_t0 = 10e-12;      % s initial rms bunch length  （用于计算上归一化）
-sigma_e0 = 7.44e-4;     %  rms energy spread
-alpha_c  = 9.4e-5;      %  momentum compaction factor
-tau_s    = 14e-3;       %  radiation damping time
-tau_z    = 14e-3;       %  radiation damping time
-I0     = 350e-3;        %  beam current
-E0     = 2.2e9;         %  beam energy
-U0     = 400e3;         %  energy loss per turn
-V_mc   = 1.2e6;         %  main cavity voltage
-h      = 800;           % harmonic number
+sigma_t0 = 100e-12;      % s initial rms bunch length
+sigma_e0 = 7.69e-4;     %  rms energy spread
+alpha_c  = 3.06e-4;      %  momentum compaction factor
+tau_s    = 25e-3;       %  radiation damping time
+tau_z    = 25e-3;       %  radiation damping time
+I0     = 600*1e-3;        %  beam current
+E0     = 3e9;         %  beam energy
+U0     = 363.8e3;         %  energy loss per turn
+V_mc   = 1e6;         %  main cavity voltage
+h      = 176;           % harmonic number
 n_hc   = 3;             % harmonic order of HHC
-Q_hc   = 2e8;           % HHC loaded quality factor
-R_hc   = Q_hc*39;       % HHC loaded shunt impedance
-C      = 479.86;        % Circumference of the ring
-fre_shift = fre_shift_scan(Ii);     % HHC detuning 
+Q_hc   = 20800;           % HHC loaded quality factor
+R_hc   = 2.75e6*2;       % HHC loaded shunt impedance
+C      = 528;        % Circumference of the ring
 % fre_shift = detune_HC_calc(I0,n_hc,C,h,U0,V_mc,R_hc,Q_hc);% in near-optimum lengthening condition
-% Normal-MC
-% Q_mc   = 6095;            % shunt impedance of main cavity
-% R_mc   = 6095*119*3;      % quality factor of main cavity
-% fre_shift_mc = -54.0e3;   % detuning of main cavity, adjusted according to the loading angle
-% Super-MC
-Q_mc   = 1.1e5;             % shunt impedance of main cavity
-R_mc   = Q_mc*45;           % quality factor of main cavity
-fre_shift_mc = -7.0e3;      % detuning of main cavity, adjusted according to the loading angle
+[fre_shift, HC_sc] = detune_HC_iter_calc(I0,n_hc,C,h,U0,V_mc,R_hc,Q_hc,sigma_t0,sigma_e0,alpha_c,E0);
+% fre_shift = 145.642e3;
+R_mc = 0.32e6*4;
+Q_mc = 3688;
+fre_shift_mc = 0;
 
 % fill pattern
-% pattern(1:10:h)=1;
-
-% hybrid mode
-% pattern = zeros(1,h);pattern(1:639)=1;pattern(720)=1;
-
-% standard mode
-% pattern  = ones(1,h);
-% pat      = 41:50;
-% for i = 2:16
-%     pat  = [pat,50*i-9:50*i];
-% end
-% pattern(pat)=0;
-% 
-
-% 80% filling rate
 pattern  = ones(1,h);
-pat      = 33:40;
-for i = 2:20
-    pat  = [pat,40*i-7:40*i];
-end
-pattern(pat)=0;
-
-% 90% filling rate
-% pattern  = ones(1,h);
-% pat      = 37:40;
-% for i = 2:20
-%     pat  = [pat,40*i-3:40*i];
-% end
-% pattern(pat)=0;
 
 fillrate = length(find(pattern==1))/h;
 HALF = machine(C,I0,U0,E0,tau_s,tau_z,sigma_t0,sigma_e0,alpha_c,h,V_mc,n_hc,R_hc,Q_hc,fillrate,fre_shift,Q_mc,R_mc,fre_shift_mc);
-HALF.ShortRange_on = 1; % 0 - neglecting short range effect, 1 considering.
+HALF.ShortRange_on = 0; % 0 - neglecting short range effect, 1 considering.
 
-HOMs_m0;  % add HOMs  see the codes of HOM_m0.m
-PI_Set;   % add PI    see the codes of PI_Set.m
+% 
+% HOMs_m0;  % add HOMs  see the codes of HOM_m0.m
+% PI_Set;   % add PI    see the codes of PI_Set.m
 
 %% bunch generation
 Par_num = 1e4; Bun_num = length(find(pattern==1));
@@ -88,19 +49,17 @@ Par_num = 1e4; Bun_num = length(find(pattern==1));
 % HALF
 charge = ones(1,h).*pattern; 
 
-% % charge(720)=5; % hybrid mode, large bunch charge / other bunch charge =5/1
-% % charge = charge+TruncatedGaussian(1, [-3,3], [1,h])*0.06.*pattern; % 6% error
 charge = charge/sum(charge)*Bun_num;
 
 % generation of initial distribution
-if Ii==1
+
 q1 = TruncatedGaussian(1, [-3,3], [Par_num,1]);
 p1 = TruncatedGaussian(1, [-3,3], [Par_num,1]);
 q  = repmat(q1,1,Bun_num);
 p  = repmat(p1,1,Bun_num);%
 % CPU to GPU
 Q=gpuArray(single(q)); P=gpuArray(single(p));     % single type
-end
+
 index_add = 1:Bun_num;
 index_add = gpuArray(single(index_add-1));
 
@@ -117,17 +76,6 @@ Wake_inter_mc(1) = Wake_inter_mc(1)/2;
 
 Wake_inter = Wake_inter_hc + Wake_inter_mc;
 
-% HOMs
-if ~isempty(Q_hom_m0)
-for j=1:length(HALF.Q_hom_m0)
-    Wake_inter_hom = -HALF.wrf_hom_m0(j)*HALF.R_hom_m0(j)/HALF.Q_hom_m0(j)*...
-        exp(-tau_q*HALF.wrf_hom_m0(j)/2/HALF.Q_hom_m0(j)).*(cos(tau_q*...
-        HALF.wrf_hom_m0(j)*HALF.rot_coef_hom_m0(j))-HALF.VbImagFactor_hom_m0(j)*...
-        sin(tau_q*HALF.wrf_hom_m0(j)*HALF.rot_coef_hom_m0(j)));
-    Wake_inter_hom(1) = Wake_inter_hom(1)/2;
-    Wake_inter = Wake_inter + Wake_inter_hom;
-end
-end
 bin_tau = Dq*sigma_t0;
 %% Longitudinal RW wake
 % load('wakez_rw.mat');
@@ -161,15 +109,13 @@ Wake_inter    = gpuArray(single(Wake_inter));
 
 %% start tracking Track_num = 1e3
 % charge per macro-particle   : HALF.qc
-% 不等电荷量填充时，每个束团的宏粒子电荷量不等，注意区别
-HALF.qc   = charge.*pattern * HALF.qc / Par_num;              %由单个元素变为一行矩阵
+HALF.qc   = charge.*pattern * HALF.qc / Par_num;             
 % induced voltage per macro-particle  : HALF.V_b
 HALF.Vb_hc  = HALF.qc * HALF.wr_hc * HALF.R_hc / HALF.Q_hc; 
 HALF.Vb_mc  = HALF.qc * HALF.wr_mc * HALF.R_mc / HALF.Q_mc; 
 
 % HALF.V_b  = HALF.qc * HALF.w_r * HALF.R_hc / HALF.Q_hc *(1+1i*HALF.VbImagFactor); 
 % initial loaded voltage
-if Ii==1
 V_hc_load_0_real = real(HALF.V_hc_load_0);
 V_hc_load_0_imag = imag(HALF.V_hc_load_0);
 V_hc_load_0      = V_hc_load_0_real+1i*V_hc_load_0_imag;
@@ -179,7 +125,7 @@ V_mc_load_0_real = real(HALF.V_mc_load_0);
 V_mc_load_0_imag = imag(HALF.V_mc_load_0);
 V_mc_load_0      = V_mc_load_0_real+1i*V_mc_load_0_imag;
 % V_mc_load_0=0; 
-end
+
 
 rot_decay_coef_hc = 1i * HALF.rot_coef_hc - 1 / (2 * HALF.Q_hc);  % rotation+decay
 TbAng_coef_hc     = exp(rot_decay_coef_hc * HALF.angle_hc);       % 
@@ -189,26 +135,15 @@ rot_decay_coef_mc = 1i * HALF.rot_coef_mc - 1 / (2 * HALF.Q_mc);  % rotation+dec
 TbAng_coef_mc     = exp(rot_decay_coef_mc * HALF.angle_mc);       % 
 exp_ang_coef_mc   = -rot_decay_coef_mc * HALF.wr_mc * sigma_t0;
 
-if ~isempty(Q_hom_m0)
-HALF.Vb_hom  = HALF.qc .* (HALF.wrf_hom_m0 .* HALF.R_hom_m0 ./ HALF.Q_hom_m0); 
-rot_decay_coef_hom = 1i * HALF.rot_coef_hom_m0 - 1 ./ (2 * HALF.Q_hom_m0);   % rotation+decay
-TbAng_coef_hom     = exp(rot_decay_coef_hom .* HALF.angle_hom_m0);           % 
-exp_ang_coef_hom   = -rot_decay_coef_hom .* HALF.wrf_hom_m0 * sigma_t0;
-V_hom_load_0_real = zeros(HALF.Q_hom_length,1);
-V_hom_load_0_imag = zeros(HALF.Q_hom_length,1);
-V_hom_load_0      = V_hom_load_0_real+1i*V_hom_load_0_imag;
-end
-
 wake_kick_coef = HALF.qc * HALF.kick_coef;
 
-% 发射机电压矢量替代之前的Vrf矢量
 Vg_mc = abs(HALF.Vg_mc_init);
 [Vg_angle]=round(Vb_angle_calc(real(HALF.Vg_mc_init),imag(HALF.Vg_mc_init))*1e12)/1e12;
 HALF.Vg_mc_track = HALF.Vg_mc_init;
 HALF.rfcoef1_track     = HALF.rfcoef1 / HALF.V_mc * Vg_mc;
 fai_s_track            = pi/2-Vg_angle;                    % 发射机电压矢量的同步相位
 
-Track_num  = 10e4;   % set tracking turns
+Track_num  = 50e4;   % set tracking turns
 % record parameters 
 Recor_step = 10;
 HALF.Recor_step=Recor_step;
@@ -218,40 +153,50 @@ Vb_hc_track_record = zeros(1,Track_num);
 record_Q_mean = zeros(Recor_num,Bun_num);record_Q_std = zeros(Recor_num,Bun_num);
 record_P_mean = zeros(Recor_num,Bun_num);record_P_std = zeros(Recor_num,Bun_num);
 
+
+%% BbB module setting
+
+record_th = 0;
+effective_kfb_vec = [];
+centroid_pos = [];
+fb_turn = 1000;                        % Turn at which feedback is turned on
+G = 3e5;                                % Total feedback gain
+Nd = 0;                                 % Integer turn delay (turns)
+% ------------------------------------------------------
+% FIR filter design (based on downsampled slow clock)
+% ------------------------------------------------------
+D = 1;                                  % Downsampling factor (sample/compute every D turns)
+Fs = (cspeed / C) / D;                  % Equivalent downsampled sampling rate (~17.7 kHz)
+h_fir = [1];
+N_taps = length(h_fir);
+% ------------------------------------------------------
+% [Mode B Core Modification] Downsampled ring buffer configuration
+% ------------------------------------------------------
+Nd_dec = ceil(Nd / D);                  % Turn delay in downsampled turns
+fb_turn_dec = ceil(fb_turn / D);        % Activation turn in downsampled turns
+% Downsampled buffer size: only needs to hold (N_taps + Nd_dec) downsampled points
+buf_size_dec = Nd_dec + N_taps + 2; 
+ring_buffer_dec = zeros(buf_size_dec, h); % Buffer for downsampled history data only
+% Zero-Order Hold (ZOH) latch register and PA state initialization
+V_dsp_held = zeros(1, h);
+V_pa_state = zeros(1, h);               % Ensure PA state variable is initialized
+enable_clipping = false;                % Enable/disable voltage clipping
+V_max = 500;                            % Maximum voltage limit
+% Power amplifier analog bandwidth parameters (bucket-to-bucket continuous)
+BW_PA = 10000e6;                        % 50 MHz
+T_bucket = C / cspeed / h;              % Bucket spacing
+alpha_PA = exp(-2.0 * pi * BW_PA * T_bucket);
+
 %%
 gd = gpuDevice(); 
 tic;
 
-pikp = [1];   % kp  of PI control
-piki = [1e-5];% ki  of PI control
-j=1;
-for pikpi = 1:length(pikp)
-PI.KP = pikp(pikpi);
-for pikii = 1:length(piki)
-record_th = 0;
-PI.KI = piki(pikii);
-HALF.Ig_track=zeros(1,HALF.h/PI.m*Track_num);
-Ig_track_tnum = 0;
 for i =1:Track_num
     % drift
     Q = Q + P * HALF.drift_coef;   
     Q_min = min(Q);    
     Q_new = round((Q - Q_min) *(1/Dq));
         
-%%  HOMs Kick
-    if ~isempty(Q_hom_m0)
-        for jj=1:HALF.Q_hom_length
-            exp_angle=exp(exp_ang_coef_hom(jj) * Q);
-            exp_angle_sum=gather(sum(exp_angle));
-            V_load_cpu = double(exp_angle_sum.*HALF.Vb_hom(jj,pattern==1));% *HALF.Vb_hom
-            [V_load,V_hom_load_0(jj)]=VoltageLoadCalc_matlab(V_hom_load_0(jj),V_load_cpu,TbAng_coef_hom(jj),pattern);                
-
-            V_load_cpu = V_load(pattern==1) * HALF.kick_coef;   % 约化V_load;
-            V_load     = gpuArray(single(V_load_cpu)); 
-            V_hom_load_kick = V_load./exp_angle;
-            P = P - real(V_hom_load_kick) + imag(V_hom_load_kick) * HALF.VbImagFactor_hom_m0(jj);
-        end
-    end
 %% Harmonic cavity     
     % beam induced voltage at nominal bucket position HHC
     exp_angle  = exp(exp_ang_coef_hc * Q);
@@ -259,56 +204,96 @@ for i =1:Track_num
     V_load_cpu = double(exp_angle_sum.*HALF.Vb_hc(pattern==1)); % *HALF.Vb_hc  
     [V_load,V_hc_load_0]=VoltageLoadCalc_matlab(V_hc_load_0,V_load_cpu,TbAng_coef_hc,pattern); 
     Vb_hc_track_record(i)=mean(V_load);
-%  谐波腔腔压矢量图示
+
     if mod(i,1000)==0
         figure(13)
         subplot(2,1,1)
         plot(abs(V_load)/1e3);
         title('Harmonic Cavity');ylabel('Amplitude [kV]');
         subplot(2,1,2)
-        plot(angle(V_load)/pi*180);ylabel('Phase [deg]');xlabel('Bucket ID');
+        plot(imag(V_load)/1e3);ylabel('Phase [deg]');xlabel('Bucket ID');
     end
-    V_load_cpu = V_load(pattern==1)*HALF.kick_coef;   % 约化V_load;
-    V_load     = gpuArray(single(V_load_cpu));    
+
+    % Vc_hc = 2*I0*R_hc*cos(atan(2*Q_hc*fre_shift/300e6))*exp(1i*atan(2*Q_hc*fre_shift/300e6))*ones(1,h);
+    Vc_hc = V_load;
+    V_load_cpu = Vc_hc(pattern==1)*HALF.kick_coef;   % 约化V_load;
+    V_load_gpu     = gpuArray(single(V_load_cpu));    
     % intrabunch kick    - V_load_kick    real part
-    V_hc_load_kick = V_load./exp_angle;   
+    V_hc_load_kick = V_load_gpu./exp_angle; 
+
 % _________________________________________________________________________    
 %% Main cavity       
     % beam induced voltage at nominal bucket position MC
     exp_angle  = exp(exp_ang_coef_mc * Q);
     exp_angle_sum= gather(sum(exp_angle));       % 耗时 0.007s sum()函数较慢    
-    V_load_cpu = double(exp_angle_sum.*HALF.Vb_mc(pattern==1)); % *HALF.Vb_mc
-    [Vc_mc,Vg_mc_track,HALF.Vg_mc_track_0,V_load,HALF.V_mc_load_0,PI]=PI_Control(PI,HALF.Vrf_ideal,HALF.Vg_mc_track_0,...
-    HALF.V_mc_load_0,V_load_cpu,TbAng_coef_mc,pattern); % every 5120 buckets to do PI
+    V_load_cpu_mc = double(exp_angle_sum.*HALF.Vb_mc(pattern==1)); % *HALF.Vb_mc
+    [V_load_mc,V_mc_load_0]=VoltageLoadCalc_matlab(V_mc_load_0,V_load_cpu_mc,TbAng_coef_mc,pattern);
 
-%     if i == 3e4
-%         HALF.Vrf_ideal=HALF.Vrf_ideal*1.08;   % 测试PI反馈对腔压设定值响应能力
-%     end
-
-    Ig_track_num = length(PI.Ig_track);
-    if Ig_track_num>10000
-        Ig_track_tnum = Ig_track_tnum + Ig_track_num;
-        HALF.Ig_track(Ig_track_tnum-Ig_track_num+1:Ig_track_tnum)=PI.Ig_track;
-        PI.Ig_track = [];
-    end
+    % Vc_mc = -V_mc*exp(1i*acos(U0/V_mc))*ones(1,h);
+    Vc_mc = ones(1,h)*HALF.Vrf_ideal; % Force MC volatge to ideal setting
+    % [Vc_mc,Vg_mc_track,HALF.Vg_mc_track_0,V_load,HALF.V_mc_load_0,PI]=PI_Control(PI,HALF.Vrf_ideal,HALF.Vg_mc_track_0,...
+    % HALF.V_mc_load_0,V_load_cpu,TbAng_coef_mc,pattern); % every 5120 buckets to do PI
 
     V_mc_kick = gpuArray(single(Vc_mc(pattern==1)*HALF.kick_coef))./exp_angle;
-%   主腔腔压矢量图示    
-    if mod(i,1000)==0
-        figure(15)
-        subplot(2,1,1)
-        plot(abs(Vc_mc)/1e3);title('Main Cavity');ylabel('Amplitude [kV]');
-        subplot(2,1,2)
-        plot(angle(Vc_mc)/pi*180);ylabel('Phase [deg]');xlabel('Bucket ID');
-
-        % generator current
-        figure(666);
-        subplot(2,1,1);plot(abs(PI.Ig_track));ylabel('amplitude');title('generator current');
-        subplot(2,1,2);plot(angle(PI.Ig_track));ylabel('phase');
-        % 发射机功率
-        % Pg_mc = 1/8*PI.Ig_track.^2*R_mc_0/betacoupling*4;
-%         figure(667);plot(abs(Pg_mc)/1e3);ylabel('P_g  [kW]');
+%% BbB feedback
+    % ------------------------------------------------------
+    % Step 1: Digital downsampling and FIR filtering (triggered every D turns)
+    % ------------------------------------------------------
+    if mod(i, D) == 0
+        % Calculate downsampled cycle counter (Sample Index)
+        sample_idx = i / D;
+        % Calculate write pointer for downsampled buffer
+        curr_ptr_dec = mod(sample_idx - 1, buf_size_dec) + 1;
+        % Extract centroid positions for all bunches (1 x h) and store into buffer
+        current_centroids = gather(mean(Q)); 
+        ring_buffer_dec(curr_ptr_dec, :) = current_centroids;
+        % Check if buffer has accumulated sufficient history and passed activation turn
+        if sample_idx > (Nd_dec + N_taps + fb_turn_dec)
+            fir_inputs = zeros(N_taps, h); 
+            for k = 1:N_taps
+                % Directly index downsampled history (no multiplication by D required)
+                target_sample = sample_idx - Nd_dec - (k - 1);
+                ptr = mod(target_sample - 1, buf_size_dec) + 1;
+                fir_inputs(k, :) = ring_buffer_dec(ptr, :);
+            end
+            % Compute FIR digital output voltage
+            V_dsp_held = G * (h_fir * fir_inputs) * sigma_t0 * cspeed; 
+        end
     end
+    % ------------------------------------------------------
+    % Step 2: Zero-Order Hold (ZOH)
+    % ------------------------------------------------------
+    % During non-sampling turns (mod(i, D) ~= 0), hold previous V_dsp_held
+    V_dsp = V_dsp_held; 
+    % ======================================================
+    % Step 3: Bucket-to-bucket analog continuous response (Crosstalk)
+    % ======================================================
+    if i > (Nd + (N_taps - 1) * D + fb_turn)
+        V_fb_final = zeros(1, h);
+        
+        % V_pa_state carries residual state from bucket (h) of the previous turn
+        for idx = 1:h
+            V_clipped = V_dsp(idx);
+            
+            if enable_clipping
+                if V_clipped > V_max,  V_clipped = V_max;  end
+                if V_clipped < -V_max, V_clipped = -V_max; end
+            end
+            
+            % Single-pole low-pass model: decay residual voltage and add new input
+            V_pa_state = alpha_PA * V_pa_state + (1.0 - alpha_PA) * V_clipped;
+            
+            V_fb_final(idx) = V_pa_state;
+        end
+        
+        V_fb = V_fb_final;
+    else
+        V_fb = zeros(1, h);
+        V_pa_state = 0.0; % Reset state while feedback is disabled
+    end
+    exp_angle_fb = exp(0 * Q);
+    V_fb_kick    = gpuArray(single(V_fb(pattern==1)*HALF.kick_coef))./exp_angle_fb;
+    % V_fb_kick = 0;
 %% short-range wake kick   
     % count bins
     if HALF.ShortRange_on ==1                 % modified in 2022/11/14
@@ -330,7 +315,7 @@ for i =1:Track_num
     P = P + rad_quan_kick - HALF.ploss;
 
     P = P - real(V_hc_load_kick) + imag(V_hc_load_kick) * HALF.VbImagFactor_hc...
-        - real(V_mc_kick) + imag(V_mc_kick) * HALF.VbImagFactor_mc+ wake_kick;    
+        - real(V_mc_kick) + imag(V_mc_kick) * HALF.VbImagFactor_mc+ wake_kick -real(V_fb_kick);    
     
     if mod(i,2000)==0
         Centroid_std=std(record_Q_mean(record_th,:))*HALF.sigma_t0*1e12;
@@ -348,18 +333,17 @@ for i =1:Track_num
 end
 wait(gd);
 toc;
-%%
-filename=['HALF_80percent_I0',num2str(I0*1e3),'mA','_RLfp',num2str(R_hc),...
-    '_QLfp',num2str(Q_hc),'_detune',num2str(fre_shift),'_kp',num2str(PI.KP),'_ki',num2str(PI.KI),'_',num2str(1),'.mat'];
-save(filename,'record_Q_mean','record_Q_std','record_P_mean','record_P_std','Q','Track_num','HALF','PI','Bun_num','Vb_hc_track_record');
-end
-end
-end
-%%
+%% savefile
+filename=['HALF_100percent_I0',num2str(I0*1e3),'mA','_RLfp',num2str(R_hc),...
+    '_QLfp',num2str(Q_hc),'_detune',num2str(fre_shift),'_fb_',num2str(G / (sigma_t0 * cspeed)),'.mat'];
+save(filename,'record_Q_mean','record_Q_std','record_P_mean','record_P_std','Q','Track_num','HALF','Bun_num','Vb_hc_track_record');
+
+
+%% plot
 figure(1);
 Recor_step=HALF.Recor_step;
 Nturns = (1:Track_num/Recor_step)*Recor_step;
-for i=1:2:8
+for i=1:10:h
     subplot(2,2,1)
     plot(Nturns,record_Q_mean(:,i)*HALF.sigma_t0*1e12); hold on;
     subplot(2,2,2)
@@ -377,19 +361,35 @@ subplot(2,2,3);ylabel('<\delta> ');xlabel('turns');xlim([1,Track_num]);grid on;
 set(gca,'FontName','Times New Roman','FontSize',12);
 subplot(2,2,4);ylabel('\sigma_{\delta} ');xlabel('turns');xlim([1,Track_num]);grid on;
 set(gca,'FontName','Times New Roman','FontSize',12);
-%%
-% 统计沿着束团 长度分布，中心分布  1:100:2000
+% %%
 figure(2);
+for i=40000:500:50000
+subplot(1,2,2);plot(record_Q_mean(end-i,:)*HALF.sigma_t0*1e12,'.');hold on;
+ylabel('<\tau>  [ps]');xlabel('bunch number');
+subplot(1,2,1);plot(record_Q_std(end-i,:)*HALF.sigma_t0*1e12,'.');hold on;
+ylabel('\sigma_{\tau}  [ps]');xlabel('bunch number');
+end
+mean(record_Q_std(end-i,:)*HALF.sigma_t0*1e12)
+subplot(1,2,2);
+% ylim([-15,15]);
+% grid minor;
+set(gca,'FontName','Times New Roman','FontSize',12);xlim([1,Bun_num]);
+subplot(1,2,1);
+% grid minor;
+set(gca,'FontName','Times New Roman','FontSize',12);xlim([1,Bun_num]);
+
+
+figure(3);
 % for i=10
 % subplot(2,1,2);plot(mean(record_Q_mean(end-i:end,:))*HALF.sigma_t0*1e12,'.');hold on;
 % ylabel('<\tau>  [ps]');xlabel('bunch number');
 % subplot(2,1,1);plot(mean(record_Q_std(end-i:end,:))*HALF.sigma_t0*1e12,'.');hold on;
 % ylabel('\sigma_{\tau}  [ps]');xlabel('bunch number');
 % end
-for i=0
-subplot(1,2,2);plot(record_Q_mean(end-i,:)*HALF.sigma_t0*1e12,'.');hold on;
-ylabel('<\tau>  [ps]');xlabel('bunch number');
-subplot(1,2,1);plot(record_Q_std(end-i,:)*HALF.sigma_t0*1e12,'.');hold on;
+for i=40000:100:44000
+subplot(1,2,2);plot(abs(fft(record_Q_mean(end-i,:)*HALF.sigma_t0*1e12)),'.');hold on;
+ylabel('<\tau>  FFT Magnitude');xlabel('Coupled-Bunch Mode Number');
+subplot(1,2,1);plot(abs(fft(record_Q_std(end-i,:)*HALF.sigma_t0*1e12)),'.');hold on;
 ylabel('\sigma_{\tau}  [ps]');xlabel('bunch number');
 end
 mean(record_Q_std(end-i,:)*HALF.sigma_t0*1e12)
@@ -409,7 +409,7 @@ binnum=max(max(Q_new))+1; binnum=gather(binnum);
 bin_num_q=sum(BinNumCalZ(binnum,Q_new));
 bin_num_q=reshape(bin_num_q,binnum,Bun_num);
 figure(4);
-bin_i = [1];
+bin_i = [1:10:h];
 colorset =[1 0 0;0 1 0;0 0 1;0 0 0.5;1 0.5 0.5; 0.5 1 0.5;0.5 0.5 1;1 0 1;0 1 1;1 1 0];
 for i =1:length(bin_i)
     bin_range = (1:binnum)*Dq*HALF.sigma_t0+tau_min(bin_i(i));
@@ -418,31 +418,25 @@ end
 ylabel('norm.density ');xlabel('\tau [ps]'); 
 xlim([-150,150]);
 set(gca,'FontName','Times New Roman','FontSize',14);
-%% 画出Vg电压
-figure(656)
-plot(abs(Vb_hc_track_record)/1e3/mean(abs(Vb_hc_track_record(1:50000))/1e3));title('Harmonic Cavity');hold on;
-plot(angle(Vb_hc_track_record)/pi*180/mean(angle(Vb_hc_track_record(1:50000))/pi*180));hold on;
-plot(Nturns,record_P_mean(:,1)/7+1);hold on;
-legend('Amplitude','Phase','<\delta>');
-xlabel('Turns');ylabel('Norm.Amp. [a.u.]');xlim([0,10e4]);
-%%
-figure(666)
-plot(Vb_hc_track_record(10000:50000)-1i*mean(imag(Vb_hc_track_record(10000:100000))));hold on;
-xlabel('Real part [V]');
-ylabel('Imag part [V]');
-plot(Vb_hc_track_record(50000:100000)-1i*mean(imag(Vb_hc_track_record(50000:100000))));hold on;
-%% 主腔发射机功率  PI.Ig_track 
-% 发射机电流
-figure(666)
-subplot(2,1,1);
-plot(abs(PI.Ig_track));hold on
-subplot(2,1,2);
-plot(angle(PI.Ig_track));hold on;
-%% 发射机功率
-Q_mc_0 = 5e8;R_mc_0 = Q_mc_0*44.5; betacoupling = Q_mc_0/HALF.Q_mc-1;% main cavity param.
-figure(667)
-Pg_mc = 1/8*HALF.Ig_track.^2*R_mc_0/betacoupling*4; % *4 due to similar to Ib
-plot(abs(Pg_mc)/1e3);hold on;ylabel('P_g  [kW]');
+% %% 画出Vg电压
+% figure(656)
+% plot(abs(Vb_hc_track_record)/1e3/mean(abs(Vb_hc_track_record(1:50000))/1e3));title('Harmonic Cavity');hold on;
+% plot(angle(Vb_hc_track_record)/pi*180/mean(angle(Vb_hc_track_record(1:50000))/pi*180));hold on;
+% plot(Nturns,record_P_mean(:,1)/7+1);hold on;
+% legend('Amplitude','Phase','<\delta>');
+% xlabel('Turns');ylabel('Norm.Amp. [a.u.]');xlim([0,10e4]);
+% %% 主腔发射机功率  PI.Ig_track 
+% % 发射机电流
+% figure(666)
+% subplot(2,1,1);
+% plot(abs(PI.Ig_track));hold on
+% subplot(2,1,2);
+% plot(angle(PI.Ig_track));hold on;
+% %% 发射机功率
+% Q_mc_0 = 5e8;R_mc_0 = Q_mc_0*44.5; betacoupling = Q_mc_0/HALF.Q_mc-1;% main cavity param.
+% figure(667)
+% Pg_mc = 1/8*HALF.Ig_track.^2*R_mc_0/betacoupling*4; % *4 due to similar to Ib
+% plot(abs(Pg_mc)/1e3);hold on;ylabel('P_g  [kW]');
 
 %% FFT分析振荡频率 Q
 % for i=1:1
