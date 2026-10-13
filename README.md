@@ -13,9 +13,7 @@ To facilitate bunch by bunch feedback for storage rings, this extended version i
    - Calculates and applies corrective kicker voltages to effectively damp longitudinal coupled-bunch instabilities.
 
 2. **Detuning Frequency Iteration Solver**:
-   - Provides a self-consistent iterative routine to determine optimal harmonic cavity (HC) detuning frequencies and phase settings under non-uniform fill patterns and transient beam loading conditions.
-   - Ensures fast and stable numerical convergence for high-current multi-bunch configurations.
-
+   - Provides a self-consistent iterative routine to determine optimal harmonic cavity (HC) detuning frequencies and phase settings under uniform fill patterns and beam loading conditions.
 ---
 
 ## Attribution & Original Work
