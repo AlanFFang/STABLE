@@ -24,7 +24,7 @@ Q_hc   = 20800;           % HHC loaded quality factor
 R_hc   = 2.75e6*2;       % HHC loaded shunt impedance
 C      = 528;        % Circumference of the ring
 % fre_shift = detune_HC_calc(I0,n_hc,C,h,U0,V_mc,R_hc,Q_hc);% in near-optimum lengthening condition
-[fre_shift, HC_sc] = detune_HC_iter_calc(I0,n_hc,C,h,U0,V_mc,R_hc,Q_hc,sigma_t0,sigma_e0,alpha_c,E0);
+[fre_shift, HC_sc] = detune_HC_iter_calc(I0,n_hc,C,h,U0,V_mc,R_hc,Q_hc,sigma_t0,sigma_e0,alpha_c,E0);% solve iterative for optimal detuning frequency
 % fre_shift = 145.642e3;
 R_mc = 0.32e6*4;
 Q_mc = 3688;
@@ -46,7 +46,6 @@ Par_num = 1e4; Bun_num = length(find(pattern==1));
 
 %% charge pattern
 
-% HALF
 charge = ones(1,h).*pattern; 
 
 charge = charge/sum(charge)*Bun_num;
